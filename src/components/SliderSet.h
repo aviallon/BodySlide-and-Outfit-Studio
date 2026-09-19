@@ -40,6 +40,17 @@ struct SliderDataFileResolution {
 	std::vector<std::string> dataFolders;
 };
 
+/* Slider data a set references that could not be used - typically because the
+   mod that ships the file is not installed. A set in that state still builds,
+   but the sliders involved do nothing to the mesh, so the result is silently
+   wrong. Callers pass a vector to LoadSetDiffData/Merge to report it instead. */
+struct UnresolvedSliderData {
+	std::string sliderName;
+	std::string dataName;
+	std::string fileName;
+	std::string reason;
+};
+
 class SliderSet {
 	std::string name;
 	std::string baseDataPath; // Base data path - from application configuration.
@@ -115,14 +126,18 @@ public:
 	std::vector<NormalGenLayer>& GetNormalsGenLayers() { return defNormalGen; }
 
 	int LoadSliderSet(XMLElement* sliderSetSource, bool appendNewSliders = true);
-	void LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& forShape = "");
+	// *outUnresolved*, when given, is cleared and filled with every slider data
+	// file the set references but could not load.
+	void LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& forShape = "",
+						 std::vector<UnresolvedSliderData>* outUnresolved = nullptr);
 
 	void Merge(SliderSet& mergeSet,
 			   DiffDataSets& inDataStorage,
 			   DiffDataSets& baseDiffData,
 			   const std::string& baseShape,
 			   const bool newDataLocal = true,
-			   const bool appendNewSliders = true);
+			   const bool appendNewSliders = true,
+			   std::vector<UnresolvedSliderData>* outUnresolved = nullptr);
 
 	// Add an empty slider.
 	size_t CreateSlider(const std::string& sliderName);

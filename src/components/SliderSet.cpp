@@ -318,8 +318,11 @@ int SliderSet::LoadSliderSet(XMLElement* element, bool appendNewSliders) {
 	return 0;
 }
 
-void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& forShape) {
+void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& forShape,
+								std::vector<UnresolvedSliderData>* outUnresolved) {
 	std::map<std::string, std::map<std::string, std::string>> osdNames;
+	if (outUnresolved)
+		outUnresolved->clear();
 
 	for (auto& slider : sliders) {
 		for (auto& ddf : slider.dataFiles) {
@@ -379,9 +382,18 @@ void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& 
 				// file is then in none of the data folders, so fullFilePath is still
 				// the bare base path - a DIRECTORY. Handing that to the reader used
 				// to be read as an entry count (see DiffDataSets::LoadSet). Such a
-				// slider simply has no external data available, so skip it.
-				if (dataFileFound)
-					inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+				// slider has no external data available, so skip it - and report it,
+				// because the build continues without that slider doing anything.
+				if (dataFileFound) {
+					if (inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath) != 0 && outUnresolved) {
+						outUnresolved->push_back(UnresolvedSliderData{
+							slider.name, ddf.dataName, ddf.fileName, "file could not be read"});
+					}
+				}
+				else if (outUnresolved) {
+					outUnresolved->push_back(UnresolvedSliderData{
+						slider.name, ddf.dataName, ddf.fileName, "not found in any data folder"});
+				}
 			}
 			// OSD format
 			else {
@@ -396,11 +408,14 @@ void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& 
 }
 
 void SliderSet::Merge(
-	SliderSet& mergeSet, DiffDataSets& inDataStorage, DiffDataSets& baseDiffData, const std::string& baseShape, const bool newDataLocal, const bool appendNewSliders) {
+	SliderSet& mergeSet, DiffDataSets& inDataStorage, DiffDataSets& baseDiffData, const std::string& baseShape, const bool newDataLocal, const bool appendNewSliders,
+	std::vector<UnresolvedSliderData>* outUnresolved) {
 	std::map<std::string, std::map<std::string, std::string>> osdNames;
 	std::map<std::string, std::map<std::string, std::string>> osdNamesBase;
+	if (outUnresolved)
+		outUnresolved->clear();
 
-	auto addSlider = [&](DiffInfo& ddf) {
+	auto addSlider = [&](DiffInfo& ddf, const std::string& sliderName) {
 		if (ddf.fileName.size() <= 4)
 			return;
 
@@ -454,10 +469,15 @@ void SliderSet::Merge(
 			// Same as LoadSetDiffData: the file may be in none of the data folders,
 			// in which case fullFilePath is still the base DIRECTORY, not a file.
 			if (dataFileFound) {
-				if (shapeName != baseShape)
-					inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
-				else
-					baseDiffData.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+				DiffDataSets& targetDiffs = shapeName != baseShape ? inDataStorage : baseDiffData;
+				if (targetDiffs.LoadSet(ddf.dataName, ddf.targetName, fullFilePath) != 0 && outUnresolved) {
+					outUnresolved->push_back(UnresolvedSliderData{
+						sliderName, ddf.dataName, ddf.fileName, "file could not be read"});
+				}
+			}
+			else if (outUnresolved) {
+				outUnresolved->push_back(UnresolvedSliderData{
+					sliderName, ddf.dataName, ddf.fileName, "not found in any data folder"});
 			}
 		}
 		// OSD format
@@ -487,7 +507,7 @@ void SliderSet::Merge(
 
 				if (sliderDataIt == sliderIt->dataFiles.end()) {
 					size_t df = sliderIt->AddDataFile(sd.targetName, sd.dataName, sd.fileName, sd.bLocal);
-					addSlider(sliderIt->dataFiles[df]);
+					addSlider(sliderIt->dataFiles[df], sliderIt->name);
 				}
 			}
 		}
@@ -495,7 +515,7 @@ void SliderSet::Merge(
 			// Copy new slider to the set
 			sliders.push_back(s);
 			for (auto& ddf : sliders.back().dataFiles)
-				addSlider(ddf);
+				addSlider(ddf, sliders.back().name);
 		}
 	}
 

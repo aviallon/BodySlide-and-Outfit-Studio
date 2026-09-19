@@ -4540,7 +4540,21 @@ int BodySlideApp::BuildListBodies(
 		if (currentSet.GenWeights())
 			nifSmall.CopyFrom(nifBig);
 
-		currentSet.LoadSetDiffData(currentDiffs);
+		std::vector<UnresolvedSliderData> unresolvedData;
+		currentSet.LoadSetDiffData(currentDiffs, "", &unresolvedData);
+
+		// A set whose slider data cannot be found still builds, but the sliders
+		// involved do nothing, so say so instead of writing a silently wrong mesh.
+		// (Before the fix in DiffDataSets::LoadSet this same situation could take
+		// the process to tens of GB instead of being reported at all.)
+		if (!unresolvedData.empty()) {
+			wxLogWarning("Set '%s': %d slider data file(s) could not be loaded; the affected sliders will have no effect.",
+						 wxString::FromUTF8(outfit), static_cast<int>(unresolvedData.size()));
+			for (auto& unresolved : unresolvedData)
+				wxLogWarning("  slider '%s': data '%s' from '%s' - %s",
+							 wxString::FromUTF8(unresolved.sliderName), wxString::FromUTF8(unresolved.dataName),
+							 wxString::FromUTF8(unresolved.fileName), wxString::FromUTF8(unresolved.reason));
+		}
 
 		// Load BuildSelection file for zap choices
 		BuildSelectionFile buildSelFile;

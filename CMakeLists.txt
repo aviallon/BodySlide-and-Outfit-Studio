@@ -467,12 +467,17 @@ if(BSOS_BUILD_TESTS)
 
 	add_executable(BSOSTests
 		tests/DiffDataTest.cpp
+		tests/SliderSetTest.cpp
 		tests/HkxFileTest.cpp
 		tests/SFMaterialDatabaseTest.cpp
 		tests/SFMaterialFileTest.cpp
 		tests/SFMorphFileTest.cpp
 		tests/SFResourceHashTest.cpp
 		src/components/DiffData.cpp
+		src/components/NormalGenLayers.cpp
+		src/components/SliderData.cpp
+		src/components/SliderSet.cpp
+		lib/TinyXML-2/tinyxml2.cpp
 		src/files/HkxFile.cpp
 		src/files/SFMaterialDatabase.cpp
 		src/files/SFMaterialFile.cpp
@@ -480,6 +485,7 @@ if(BSOS_BUILD_TESTS)
 		src/files/SFMorphFile.cpp
 		src/files/SFResourceHash.cpp
 		src/utils/PlatformUtil.cpp
+		src/utils/ConfigurationManager.cpp
 		src/utils/StringStuff.cpp
 	)
 	target_include_directories(BSOSTests PRIVATE
@@ -489,6 +495,15 @@ if(BSOS_BUILD_TESTS)
 		${CMAKE_CURRENT_SOURCE_DIR}/lib/nifly/external
 	)
 	target_compile_definitions(BSOSTests PRIVATE ${BSOS_PLATFORM_DEFINITIONS})
+
+	# SliderSet.cpp and SliderData.cpp are compiled into the tests, and
+	# SliderData.cpp includes wx/dir.h: the target needs wx headers even though
+	# nothing under test calls into wxWidgets itself.
+	if(TARGET wx::base)
+		target_link_libraries(BSOSTests PRIVATE wx::base)
+	else()
+		target_include_directories(BSOSTests PRIVATE ${wxWidgets_INCLUDE_DIRS})
+	endif()
 	target_link_libraries(BSOSTests PRIVATE Catch2::Catch2WithMain)
 	set_target_properties(BSOSTests PROPERTIES CXX_EXTENSIONS OFF)
 	if(MSVC AND BSOS_TEST_MSVC_RUNTIME_LIBRARY)

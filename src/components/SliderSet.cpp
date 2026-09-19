@@ -340,6 +340,7 @@ void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& 
 			else
 				dataFolders.push_back(datafolder);
 
+			bool dataFileFound = false;
 			for (auto& df : dataFolders) {
 				if (isBSDFile) {
 					std::string filePath = df + PathSepStr + ddf.fileName;
@@ -347,6 +348,7 @@ void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& 
 					// Use data folder that contains the external file
 					if (PlatformUtil::FileExists(fullFilePath + filePath)) {
 						fullFilePath += filePath;
+						dataFileFound = true;
 						break;
 					}
 				}
@@ -373,7 +375,13 @@ void SliderSet::LoadSetDiffData(DiffDataSets& inDataStorage, const std::string& 
 
 			// BSD format
 			if (isBSDFile) {
-				inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+				// A set can reference a .bsd from a mod that is not installed: the
+				// file is then in none of the data folders, so fullFilePath is still
+				// the bare base path - a DIRECTORY. Handing that to the reader used
+				// to be read as an entry count (see DiffDataSets::LoadSet). Such a
+				// slider simply has no external data available, so skip it.
+				if (dataFileFound)
+					inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
 			}
 			// OSD format
 			else {
@@ -408,6 +416,7 @@ void SliderSet::Merge(
 		else
 			dataFolders.push_back(mergeSet.datafolder);
 
+		bool dataFileFound = false;
 		for (auto& df : dataFolders) {
 			if (isBSDFile) {
 				std::string filePath = df + PathSepStr + ddf.fileName;
@@ -415,6 +424,7 @@ void SliderSet::Merge(
 				// Use data folder that contains the external file
 				if (PlatformUtil::FileExists(fullFilePath + filePath)) {
 					fullFilePath += filePath;
+					dataFileFound = true;
 					break;
 				}
 			}
@@ -441,10 +451,14 @@ void SliderSet::Merge(
 
 		// BSD format
 		if (isBSDFile) {
-			if (shapeName != baseShape)
-				inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
-			else
-				baseDiffData.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+			// Same as LoadSetDiffData: the file may be in none of the data folders,
+			// in which case fullFilePath is still the base DIRECTORY, not a file.
+			if (dataFileFound) {
+				if (shapeName != baseShape)
+					inDataStorage.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+				else
+					baseDiffData.LoadSet(ddf.dataName, ddf.targetName, fullFilePath);
+			}
 		}
 		// OSD format
 		else {

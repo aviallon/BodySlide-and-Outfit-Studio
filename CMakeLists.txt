@@ -377,11 +377,13 @@ if(BSOS_BUILD_TESTS)
 	enable_testing()
 
 	add_executable(BSOSTests
+		tests/DiffDataTest.cpp
 		tests/HkxFileTest.cpp
 		tests/SFMaterialDatabaseTest.cpp
 		tests/SFMaterialFileTest.cpp
 		tests/SFMorphFileTest.cpp
 		tests/SFResourceHashTest.cpp
+		src/components/DiffData.cpp
 		src/files/HkxFile.cpp
 		src/files/SFMaterialDatabase.cpp
 		src/files/SFMaterialFile.cpp

@@ -137,21 +137,41 @@ static bool ReadOSDData(const std::string& fileName, const std::map<std::string,
 	std::fstream file;
 	PlatformUtil::OpenFileStream(file, fileName, std::ios::in | std::ios::binary);
 
-	if (!file)
+	if (!file || !file.seekg(0, std::ios::end))
 		return false;
+
+	std::streamoff fileSize = static_cast<std::streamoff>(file.tellg());
+	// header + version + count, then at least 3 bytes per entry (1 byte name
+	// length, 2 byte diff size, name of length 0).
+	constexpr std::streamoff minHeaderSize = 12;
+	if (fileSize < minHeaderSize)
+		return false;
+
+	file.seekg(0, std::ios::beg);
 
 	uint32_t header = 0;
 	file.read((char*)&header, 4);
-	if (header != "OSD\0"_mci)
+	if (!file || header != "OSD\0"_mci)
 		return false;
 
 	uint32_t version = 1;
 	file.read((char*)&version, 4);
+	if (!file)
+		return false;
+
 	if (outVersion)
 		*outVersion = version;
 
 	uint32_t dataCount = 0;
 	file.read((char*)&dataCount, 4);
+	if (!file)
+		return false;
+
+	// Every count in the file is a claim, not a fact: this used to go straight
+	// into reserve(), so a truncated or misread entry count allocated GBs.
+	if (static_cast<std::streamoff>(dataCount) > (fileSize - minHeaderSize) / 3)
+		return false;
+
 	outDataDiffs.reserve(dataNames ? std::min<size_t>(dataCount, dataNames->size()) : dataCount);
 
 	uint8_t nameLength = 0;
@@ -159,17 +179,28 @@ static bool ReadOSDData(const std::string& fileName, const std::map<std::string,
 	uint16_t diffSize = 0;
 	for (uint32_t i = 0; i < dataCount; ++i) {
 		file.read((char*)&nameLength, 1);
+		if (!file)
+			return false;
+
 		dataName.resize(nameLength, ' ');
-		file.read((char*)&dataName.front(), nameLength);
+		if (nameLength > 0) {
+			file.read((char*)&dataName.front(), nameLength);
+			if (!file)
+				return false;
+		}
 
 		file.read((char*)&diffSize, 2);
+		if (!file)
+			return false;
 		if (dataNames && dataNames->find(dataName) == dataNames->end()) {
 			file.seekg(static_cast<std::streamoff>(diffSize) * sizeof(DiffStruct), std::ios::cur);
 			continue;
 		}
 
 		std::vector<DiffStruct> diffData(diffSize);
-		file.read((char*)diffData.data(), diffSize * sizeof(DiffStruct));
+		file.read((char*)diffData.data(), static_cast<std::streamoff>(diffSize) * sizeof(DiffStruct));
+		if (!file)
+			return false;
 
 		auto diffs = std::make_unique<TargetDataDiffList>();
 		diffs->reserve(diffSize);
@@ -230,20 +261,45 @@ int DiffDataSets::LoadSet(const std::string& name, const std::string& target, co
 	std::fstream inFile;
 	PlatformUtil::OpenFileStream(inFile, fromFile, std::ios::in | std::ios::binary);
 
+	// A directory opens successfully on POSIX - only reading it fails - so the
+	// open() check below cannot tell "this is not a file" from "this is a file".
+	// The entry count used to be read into an UNINITIALIZED variable and passed
+	// straight to reserve(), and the loop below then pushed that many entries.
+	// A caller that failed to resolve a slider data file passed the base path,
+	// i.e. a directory, and asked for tens of GB: measured on a load order with
+	// ZaZ 8 installed, one outfit reached 8 GB in under 10 seconds
+	// ("CBBE Dragonborn - Body - Telvanni" / "ZAZGSBDoggieBelt"). Everything
+	// read from the file is therefore checked here instead of trusted.
+	if (!inFile || !inFile.seekg(0, std::ios::end))
+		return 1;
+
+	std::streamoff fileSize = static_cast<std::streamoff>(inFile.tellg());
+	// One entry is a uint32 index plus a Vector3.
+	constexpr std::streamoff entrySize = static_cast<std::streamoff>(sizeof(uint32_t) + sizeof(Vector3));
+	if (fileSize < static_cast<std::streamoff>(sizeof(uint32_t)))
+		return 1; // empty, or a directory (seek to end reports 0)
+
+	inFile.seekg(0, std::ios::beg);
+
+	uint32_t sz = 0;
+	inFile.read((char*)&sz, sizeof(uint32_t));
 	if (!inFile)
 		return 1;
 
-	uint32_t sz;
-	inFile.read((char*)&sz, 4);
+	if (static_cast<std::streamoff>(sz) * entrySize > fileSize - static_cast<std::streamoff>(sizeof(uint32_t)))
+		return 2; // a count the file cannot possibly hold
 
 	auto data = std::make_unique<TargetDataDiffList>();
 	data->reserve(sz);
 
-	uint32_t idx;
+	uint32_t idx = 0;
 	Vector3 v;
 	for (uint32_t i = 0; i < sz; i++) {
 		inFile.read((char*)&idx, sizeof(uint32_t));
 		inFile.read((char*)&v, sizeof(Vector3));
+		if (!inFile)
+			return 1; // truncated
+
 		v.clampEpsilon();
 		data->push_back(TargetDataDiff{static_cast<uint16_t>(idx), v});
 	}
